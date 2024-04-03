@@ -1,0 +1,5 @@
+first_name,last_name,email,phone_number,pesel,department,position,salary_per_hour,start_date
+John,Doe,johndoe@example.com,123-456-7890,12345678901,Engineering,Software Engineer,28.85,2020-01-15,
+Jane,Smith,janesmith@example.com,987-654-3210,23456789012,Marketing,Marketing Specialist,26.44,2019-07-20,1
+David,Brown,davidbrown@example.com,555-123-4567,34567890123,Finance,Financial Analyst,31.25,2021-03-10
+Emily,Johnson,emilyjohnson@example.com,321-456-7890,45678901234,Human Resources,HR Manager,33.65,2018-12-05,3

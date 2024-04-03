@@ -1,0 +1,5 @@
+client_name,street,address,city,postal_code,country,vat_rate_percent,phone,email,nip
+ABC Sp. z o.o.,Flower Street,ul. Kwiatowa 1,Warsaw,00-001,PL,23,123456789,info@abc.com,123-456-78-90
+XYZ Ltd.,123 Main Street,123 Main Street,New York,10001,US,8,987654321,sales@xyz.com,98-765-432-10
+DEF GmbH,Musterstraße 5,Musterstraße 5,Berlin,10115,GE,19,654321987,info@def.de,65-432-198-70
+GHI S.A.,Paulista Avenue,Av. Paulista 1000,São Paulo,01310-100,BZ,12,123123123,contact@ghi.com.br,12-312-312-30
