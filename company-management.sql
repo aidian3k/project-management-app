@@ -43,7 +43,7 @@ create table projects_temporary
     client_name    text,
     start_date     text,
     end_date       text,
-    project_status text
+    description text
 );
 
 call remove_table('employees_temporary');
@@ -98,7 +98,7 @@ $$
             CREATE TABLE public.detailed_logs
             (
                 logs_id              INT          NOT NULL,
-                detailed_description VARCHAR(100) NOT NULL,
+                detailed_description VARCHAR(300) NOT NULL,
                 FOREIGN KEY (logs_id) REFERENCES logs (id)
             );
         END IF;
@@ -130,7 +130,7 @@ $$
             create table clients
             (
                 id               serial primary key,
-                company_name     text    not null,
+                client_name      text    not null,
                 street           text    not null,
                 address          text    not null,
                 city             text    not null,
@@ -139,6 +139,39 @@ $$
                 phone            text    not null,
                 email            text    not null,
                 nip              text    not null
+            );
+        end if;
+    end;
+$$;
+
+do
+$$
+    begin
+        if not exists (select 1
+                       from information_schema.tables and
+            table_name = 'transaction_logs' and table_schema = 'public') then
+            create table transaction_logs
+            (
+                id          serial primary key,
+                description text      not null,
+                timestamp   timestamp not null default current_timestamp,
+                username    text      not null default current_user,
+                hostname    text      not null default inet_client_addr()
+            );
+        end if;
+    end;
+$$;
+
+do
+$$
+    begin
+        if not exists (select 1
+                       from information_schema.tables and
+            table_name = 'transaction_details' and table_schema = 'public') then
+            create table transaction_details
+            (
+                transaction_id serial primary key,
+                description    text not null
             );
         end if;
     end;
@@ -296,6 +329,7 @@ DECLARE
                                        from clients_temporary
                                        where not is_valid_email(email));
     helper_id              numeric;
+    count_helper           numeric;
 BEGIN
     if clients_count = 0 then
         error_message := error_message ||
@@ -364,6 +398,41 @@ BEGIN
         return error_result;
     end if;
 
+    /* Adding new clients to the table */
+    insert into clients(client_name, street, address, city, postal_code,
+                        vat_rate_percent, phone, email, nip)
+    select distinct ct.client_name,
+                    ct.street,
+                    ct.address,
+                    ct.city,
+                    ct.postal_code,
+                    textToNumeric(ct.vat_rate_percent),
+                    ct.phone,
+                    ct.email,
+                    ct.nip
+    from clients_temporary ct
+    where not exists (select 1
+                      from clients c
+                      where c.nip = ct.nip
+                        and c.company_name = ct.client_name);
+    count_helper := (select count(distinct ct.client_name)
+                     from clients_temporary ct
+                     where not exists (select 1
+                                       from clients c
+                                       where c.nip = ct.nip
+                                         and c.company_name = ct.client_name);
+
+    insert into transaction_logs(description)
+    values ('Added new clients to the table with count: ' || count_helper)
+    returning id into helper_id;
+    insert into transaction_details(transaction_id, description)
+    select helper_id, ct.client_name
+    from clients_temporary ct
+    where not exists (select 1
+                      from clients c
+                      where c.nip = ct.nip
+                        and c.company_name = ct.client_name);
+
     return error_result;
 END;
 $$ LANGUAGE plpgsql;
@@ -389,6 +458,7 @@ declare
                                                     from projects_temporary
                                                     group by project_name
                                                     having count(*) > 1);
+    count_helper numeric;
 begin
     if (select count(*) from projects_temporary) = 0 then
         error_message := error_message ||
@@ -456,6 +526,43 @@ begin
         error_result := 1;
         return error_result;
     end if;
+
+    /* inserting the data into the projects table */
+    insert into projects(project_name, start_date, end_date, description,
+                         client_id)
+    select distinct pt.project_name,
+                    textToDate(pt.start_date),
+                    textToDate(pt.end_date),
+                    'No description',
+                    c.id
+    from projects_temporary pt
+    join clients c on pt.client_name = c.client_name
+    where not exists (select 1
+                      from projects p
+                      where p.project_name = pt.project_name
+                        and p.client_id = c.id);
+
+    count_helper := (select count(distinct pt.project_name)
+                     from projects_temporary pt
+                              join clients c on pt.client_name = c.client_name
+                     where not exists (select 1
+                                       from projects p
+                                       where p.project_name = pt.project_name
+                                         and p.client_id = c.id));
+
+    insert into transaction_logs(description)
+    values ('Added new clients to the projects with count: ' || count_helper)
+    returning id into helper_id;
+
+    insert into transaction_details(transaction_id, description)
+    select helper_id, pt.project_name
+    from projects_temporary pt
+             join clients c on pt.client_name = c.client_name
+    where not exists (select 1
+                      from projects p
+                      where p.project_name = pt.project_name
+                        and p.client_id = c.id);
+
 end;
 $$;
 
@@ -475,6 +582,7 @@ declare
                                                                left join departments d
                                                                          on et.department = d.name
                                                       where d.name is null);
+    employees_count numeric;
 begin
     if (select count(*) from employees_temporary) = 0 then
         error_message := error_message ||
@@ -524,6 +632,32 @@ begin
         error_result := 1;
         return error_result;
     end if;
+
+    /* inserting the employees into the projects employees table */
+    insert into employees(first_name, last_name, position, phone_number,
+                          email, pesel, salary_per_hour, employment_date)
+
+
+    count_helper := (select count(distinct pt.project_name)
+                     from projects_temporary pt
+                              join clients c on pt.client_name = c.client_name
+                     where not exists (select 1
+                                       from projects p
+                                       where p.project_name = pt.project_name
+                                         and p.client_id = c.id));
+
+    insert into transaction_logs(description)
+    values ('Added new clients to the projects with count: ' || count_helper)
+    returning id into helper_id;
+
+    insert into transaction_details(transaction_id, description)
+    select helper_id, pt.project_name
+    from projects_temporary pt
+             join clients c on pt.client_name = c.client_name
+    where not exists (select 1
+                      from projects p
+                      where p.project_name = pt.project_name
+                        and p.client_id = c.id);
 end;
 $$;
 
@@ -531,29 +665,29 @@ create function check_if_month_work_data_are_okay()
     returns numeric as
 $$
 declare
-    error_result                        numeric := 0;
-    helper_id                           numeric;
-    error_message                       text    := 'There is an error in month_work data: ';
-    existing_employees_that_not_in_file numeric := (select count(*)
-                                                    from employees e
-                                                             left join month_work_temporary mwt
-                                                                       on e.pesel = mwt.pesel
-                                                    where mwt.pesel is null);
-    duplicated_days                     numeric := (select count(*)
-                                                    from month_work_temporary
-                                                    group by date
-                                                    having count(*) > 1);
-    days_from_future                   numeric := (select count(*)
-                                                   from month_work_temporary
-                                                   where textToDate(date) > now());
-    all_days_are_not_from_the_same_month       numeric := (select count(*)
-                                                           from month_work_temporary
-                                                           group by extract(month from textToDate(date)));
-    project_that_is_not_in_projects numeric := (select count(*)
-                                               from month_work_temporary mwt
-                                                        left join projects p
-                                                                  on mwt.project_name = p.project_name
-                                               where p.project_name is null);
+    error_result                         numeric := 0;
+    helper_id                            numeric;
+    error_message                        text    := 'There is an error in month_work data: ';
+    existing_employees_that_not_in_file  numeric := (select count(*)
+                                                     from employees e
+                                                              left join month_work_temporary mwt
+                                                                        on e.pesel = mwt.pesel
+                                                     where mwt.pesel is null);
+    duplicated_days                      numeric := (select count(*)
+                                                     from month_work_temporary
+                                                     group by date
+                                                     having count(*) > 1);
+    days_from_future                     numeric := (select count(*)
+                                                     from month_work_temporary
+                                                     where textToDate(date) > now());
+    all_days_are_not_from_the_same_month numeric := (select count(*)
+                                                     from month_work_temporary
+                                                     group by extract(month from textToDate(date)));
+    project_that_is_not_in_projects      numeric := (select count(*)
+                                                     from month_work_temporary mwt
+                                                              left join projects p
+                                                                        on mwt.project_name = p.project_name
+                                                     where p.project_name is null);
 begin
     if (select count(*) from month_work_temporary) = 0 then
         error_message := error_message ||
@@ -631,7 +765,8 @@ begin
         insert into detailed_logs (logs_id, detailed_description)
         select helper_id, mwt.date
         from month_work_temporary mwt
-        where extract(month from textToDate(mwt.date)) != extract(month from now());
+        where extract(month from textToDate(mwt.date)) !=
+              extract(month from now());
 
         error_result := 1;
         return error_result;
@@ -673,3 +808,4 @@ begin
     end if;
 end;
 $$;
+
