@@ -23,7 +23,7 @@ end;
 $$;
 
 call remove_table('clients_temporary');
-create table clients_temporary
+create temporary table clients_temporary
 (
     client_name      text,
     street           text,
@@ -37,17 +37,17 @@ create table clients_temporary
 );
 
 call remove_table('projects_temporary');
-create table projects_temporary
+create temporary table projects_temporary
 (
-    project_name   text,
-    client_name    text,
-    start_date     text,
-    end_date       text,
-    description text
+    project_name text,
+    client_name  text,
+    start_date   text,
+    end_date     text,
+    description  text
 );
 
 call remove_table('employees_temporary');
-create table employees_temporary
+create temporary table employees_temporary
 (
     first_name      text,
     last_name       text,
@@ -61,7 +61,7 @@ create table employees_temporary
 );
 
 call remove_table('month_work_temporary');
-create table month_work_temporary
+create temporary table month_work_temporary
 (
     pesel        text,
     date         text,
@@ -76,7 +76,7 @@ $$
                        FROM information_schema.tables
                        WHERE table_schema = 'public'
                          AND table_name = 'logs') THEN
-            CREATE TABLE public.logs
+            CREATE TABLE logs
             (
                 id          SERIAL PRIMARY KEY,
                 description text      NOT NULL,
@@ -95,7 +95,7 @@ $$
                        FROM information_schema.tables
                        WHERE table_schema = 'public'
                          AND table_name = 'detailed_logs') THEN
-            CREATE TABLE public.detailed_logs
+            CREATE TABLE detailed_logs
             (
                 logs_id              INT          NOT NULL,
                 detailed_description VARCHAR(300) NOT NULL,
@@ -458,7 +458,7 @@ declare
                                                     from projects_temporary
                                                     group by project_name
                                                     having count(*) > 1);
-    count_helper numeric;
+    count_helper                        numeric;
 begin
     if (select count(*) from projects_temporary) = 0 then
         error_message := error_message ||
@@ -536,7 +536,7 @@ begin
                     'No description',
                     c.id
     from projects_temporary pt
-    join clients c on pt.client_name = c.client_name
+             join clients c on pt.client_name = c.client_name
     where not exists (select 1
                       from projects p
                       where p.project_name = pt.project_name
@@ -582,7 +582,7 @@ declare
                                                                left join departments d
                                                                          on et.department = d.name
                                                       where d.name is null);
-    employees_count numeric;
+    count_helper                          numeric;
 begin
     if (select count(*) from employees_temporary) = 0 then
         error_message := error_message ||
@@ -634,30 +634,44 @@ begin
     end if;
 
     /* inserting the employees into the projects employees table */
-    insert into employees(first_name, last_name, position, phone_number,
-                          email, pesel, salary_per_hour, employment_date)
+    insert into employees(pesel, last_name, position, phone_number,
+                          email, first_name, salary_per_hour, employment_date)
+    select distinct et.pesel,
+                    et.last_name,
+                    et.position,
+                    et.phone_number,
+                    et.email,
+                    et.first_name,
+                    textToNumeric(et.salary_per_hour),
+                    textToDate(et.employment_date)
+    from employees_temporary et
+    where not exists(select 1
+                     from employees e
+                     where e.pesel = et.pesel
+                       and e.first_name = et.first_name
+                       and et.last_name = e.last_name);
 
 
-    count_helper := (select count(distinct pt.project_name)
-                     from projects_temporary pt
-                              join clients c on pt.client_name = c.client_name
-                     where not exists (select 1
-                                       from projects p
-                                       where p.project_name = pt.project_name
-                                         and p.client_id = c.id));
+    count_helper := (select count(distinct et.pesel)
+                     from employees_temporary et
+                     where not exists(select 1
+                                      from employees e
+                                      where e.pesel = et.pesel
+                                        and e.first_name = et.first_name
+                                        and et.last_name = e.last_name);
 
     insert into transaction_logs(description)
-    values ('Added new clients to the projects with count: ' || count_helper)
+    values ('Added new employees to the projects with count: ' || count_helper)
     returning id into helper_id;
 
     insert into transaction_details(transaction_id, description)
-    select helper_id, pt.project_name
-    from projects_temporary pt
-             join clients c on pt.client_name = c.client_name
-    where not exists (select 1
-                      from projects p
-                      where p.project_name = pt.project_name
-                        and p.client_id = c.id);
+    select helper_id, et.pesel
+    from employees_temporary et
+    where not exists(select 1
+                     from employees e
+                     where e.pesel = et.pesel
+                       and e.first_name = et.first_name
+                       and et.last_name = e.last_name);
 end;
 $$;
 
@@ -688,6 +702,10 @@ declare
                                                               left join projects p
                                                                         on mwt.project_name = p.project_name
                                                      where p.project_name is null);
+    count_helper                         numeric;
+    hours_worked_more_than_24            numeric := (select count(*)
+                                                     from month_work_temporary
+                                                     where textToNumeric(hours_worked) > 24);
 begin
     if (select count(*) from month_work_temporary) = 0 then
         error_message := error_message ||
@@ -730,9 +748,9 @@ begin
         returning id into helper_id;
 
         insert into detailed_logs (logs_id, detailed_description)
-        select helper_id, mwt.date
+        select helper_id, mwt.date || mwt.pesel
         from month_work_temporary mwt
-        group by mwt.date
+        group by (mwt.pesel, mwt.date)
         having count(*) > 1;
 
         error_result := 1;
@@ -806,6 +824,165 @@ begin
         error_result := 1;
         return error_result;
     end if;
-end;
+
+    if hours_worked_more_than_24 > 0 then
+        error_message := error_message ||
+                         'There are hours worked that are more than 24 in the temporary table!';
+        insert into logs (description)
+        values (error_message)
+        returning id into helper_id;
+
+        insert into detailed_logs (logs_id, detailed_description)
+        select helper_id, mwt.hours_worked
+        from month_work_temporary mwt
+        where textToNumeric(mwt.hours_worked) > 24;
+
+        error_result := 1;
+        return error_result;
+    end if;
+
+    /* inserting the data into the month_work table */
+    insert into month_work(employee_id, date, project_id, hours_worked)
+    select e.id, textToDate(mwt.date), p.id, textToNumeric(mwt.hours_worked)
+    from month_work_temporary mwt
+             join employees e on mwt.pesel = e.pesel
+             join projects p on mwt.project_name = p.project_name
+    where not exists (select 1
+                      from month_work mw
+                      where mw.employee_id = e.id
+                        and mw.date = textToDate(mwt.date)
+                        and mw.project_id = p.id);
+
+    count_helper := (select count(distinct mwt.date)
+                     from month_work_temporary mwt
+                              join employees e on mwt.pesel = e.pesel
+                              join projects p on mwt.project_name = p.project_name
+                     where not exists (select 1
+                                       from month_work mw
+                                       where mw.employee_id = e.id
+                                         and mw.date = textToDate(mwt.date)
+                                         and mw.project_id = p.id));
+    insert into transaction_logs(description)
+    values ('Added new month work data to the table with count: ' ||
+            count_helper)
+    returning id into helper_id;
+
+    insert into transaction_details(transaction_id, description)
+    select helper_id, '' || mwt.date || ' ' || mwt.pesel
+    from month_work_temporary mwt
+             join employees e on mwt.pesel = e.pesel
+             join projects p on mwt.project_name = p.project_name
+    where not exists (select 1
+                      from month_work mw
+                      where mw.employee_id = e.id
+                        and mw.date = textToDate(mwt.date)
+                        and mw.project_id = p.id);
+end
 $$;
+
+/* creating the table for storing current raport schema function to generate reports standard in xml */
+call remove_table('raport_schemas');
+create table raport_schemas
+(
+    type               text,
+    from_date          date,
+    sql_procedure_name text,
+    primary key (type, from_date)
+);
+insert into raport_schemas (type, from_date, sql_procedure_name)
+values ('standard', '2024-04-01', 'standard_month_raport2'),
+       ('standard', '2023-04-01', 'standard_month_raport1'),
+       ('standard', '2022-04-01', 'standard_month_raport0');
+
+create or replace function standard_month_raport0(year_month nchar(6))
+    returns xml as
+$$
+begin
+end;
+$$ language plpgsql;
+
+create or replace function standard_month_raport1(year_month nchar(6))
+    returns xml as
+$$
+begin
+end;
+$$ language plpgsql;
+
+create or replace function standard_month_raport2(year_month nchar(6))
+    returns xml as
+$$
+begin
+end;
+$$ language plpgsql;
+
+create or replace procedure generate_report(wanted_type text, wanted_from_date date)
+    language plpgsql
+as
+$$
+declare
+    created_sql   text;
+    function_name text;
+    found_month   text;
+
+begin
+    found_month := (select max(from_date)
+                    from raport_schemas rs
+                    where rs.type = wanted_type
+                      and rs.from_date <= wanted_from_date);
+
+    if found_month is null then
+        raise exception 'There is no schema for the given date!';
+        return -1;
+    end if;
+
+    function_name := (select sql_procedure_name
+                      from raport_schemas rs
+                      where rs.type = wanted_type
+                        and rs.from_date = found_month);
+    created_sql := 'call ' || function_name || '(' || wanted_from_date || ')';
+
+    execute created_sql;
+end ;
+$$;
+
+create or replace procedure standard_month_report(year_month nchar(6)) as
+$$
+begin
+    SELECT XMLELEMENT(
+                   NAME "monthly_work_report",
+                   XMLATTRIBUTES('month_report_for_' || year_month AS "month"),
+                   (SELECT XMLAGG(
+                                   XMLELEMENT(
+                                           NAME "project",
+                                           XMLATTRIBUTES(p.project_name AS "name"),
+                                           (SELECT XMLAGG(
+                                                           XMLELEMENT(NAME "work_entry",
+                                                                   XMLFOREST(
+                                                                          e.first_name as "first_name",
+                                                                          e.last_name as "last_name",
+                                                                            e.position as "position",
+                                                                            e.email as "email",
+                                                                          (select sum(w.hour_worked)) as "hours_worked_in_month",
+                                                                            (select sum(w.hour_worked * e.salary_per_hour)) as "salary_in_month_brutto",
+                                                                            (select sum(w.hour_worked * e.salary_per_hour * 0.77)) as "salary_in_month_netto"
+                                                                            )
+                                                                   )
+                                                           )
+                                                   )
+                                            FROM month_work w
+                                            join employees e on e.id = w.employee_id
+                                            where w.project_id = p.id
+                                            and w.date >= DATE_TRUNC('month', textToDate(year_month))
+                                               AND w.date < DATE_TRUNC('month', textToDate(year_month) + INTERVAL '1 month'))
+                                           )
+                                   )
+                           )
+                    FROM (select distinct project_name
+                          FROM projects p
+                          where p.end_date >= textToDate(year_month)) p)
+           ) AS xml_result;
+
+end;
+$$
+    language plpgsql;
 
