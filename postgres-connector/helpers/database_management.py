@@ -45,11 +45,16 @@ class DatabaseManagement:
             logging.error(f'Error while inserting into the table in db', e)
             sys.exit(OutputConstants.EXIT_FAILURE)
 
-    def validate_temporary_data(self):
+    def validate_temporary_data_and_write_to_destination_table(self):
         try:
             postgres_cursor = self.__postgres_connection.cursor()
-            postgres_cursor.callproc(self.__validation_procedure_name)
-            postgres_cursor.commit()
+            postgres_cursor.execute(f'select {self.__validation_procedure_name}()')
+            result = int(postgres_cursor.fetchone()[0])
+
+            if result == OutputConstants.EXIT_FAILURE:
+                raise Exception('There is a problem with data - check database log table!')
+
+            self.__postgres_connection.commit()
             postgres_cursor.close()
         except Exception as error:
             logging.error(f'There was an error while executing the validation procedure: {error}')

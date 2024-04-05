@@ -378,7 +378,7 @@ BEGIN
         returning id into helper_id;
 
         insert into detailed_logs(logs_id, detailed_description)
-        select helper_id, pt.company_name
+        select helper_id, pt.client_name
         from clients_temporary pt
         where textToNumeric(pt.vat_rate_percent) > 100
            or textToNumeric(pt.vat_rate_percent) < 0;
@@ -396,7 +396,7 @@ BEGIN
         returning id into helper_id;
 
         insert into detailed_logs(logs_id, detailed_description)
-        select helper_id, pt.company_name
+        select helper_id, pt.client_name
         from clients_temporary pt
         where not is_valid_email(pt.email);
 
@@ -421,13 +421,13 @@ BEGIN
     where not exists (select 1
                       from clients c
                       where c.nip = ct.nip
-                        and c.company_name = ct.client_name);
+                        and c.client_name = ct.client_name);
     count_helper := (select count(distinct ct.client_name)
                      from clients_temporary ct
                      where not exists (select 1
                                        from clients c
                                        where c.nip = ct.nip
-                                         and c.company_name = ct.client_name);
+                                         and c.client_name = ct.client_name));
 
     insert into transaction_logs(description)
     values ('Added new clients to the table with count: ' || count_helper)
@@ -438,7 +438,7 @@ BEGIN
     where not exists (select 1
                       from clients c
                       where c.nip = ct.nip
-                        and c.company_name = ct.client_name);
+                        and c.client_name = ct.client_name);
 
     return error_result;
 END;

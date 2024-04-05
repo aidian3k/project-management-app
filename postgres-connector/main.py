@@ -25,3 +25,4 @@ if __name__ == '__main__':
                                                                    ClientConstants.validation_procedure_name)
     clients_db_management.delete_all_temporary_data()
     clients_db_management.write_temporary_data_into_table(clients_file_path)
+    clients_db_management.validate_temporary_data_and_write_to_destination_table()
