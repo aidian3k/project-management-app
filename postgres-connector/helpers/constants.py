@@ -11,9 +11,24 @@ class FileNames:
 
 
 class DatabaseConstants:
-    database_name = 'company-management'
+    database_name = 'postgres'
 
 
 class ClientConstants:
     temporary_table_name = 'clients_temporary'
-    validation_procedure_name = 'clients_validation_procedure'
+    validation_procedure_name = 'check_if_clients_data_are_okay'
+
+
+class ProjectConstants:
+    temporary_table_name = 'projects_temporary'
+    validation_procedure_name = 'check_if_projects_data_are_okay'
+
+
+class EmployeeConstants:
+    temporary_table_name = 'employees_temporary'
+    validation_procedure_name = 'check_if_employees_data_are_okay'
+
+
+class MonthWorkConstants:
+    temporary_table_name = 'month_work_temporary'
+    validation_procedure_name = 'check_if_clients_data_are_okay'

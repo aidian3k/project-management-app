@@ -1,29 +1,21 @@
-do
-$$
-    begin
-        if count(select 1 from pg_database where
-                 datname = 'company_management') = 0 then
-            create database company_management;
-        end if;
-    end;
-$$;
-
-
 drop procedure if exists remove_table;
 create or replace procedure remove_table(remove_table text)
     language plpgsql
 as
 $$
+declare
+    count numeric := (select count(*)
+                      from information_schema.tables
+                      where table_name = remove_table);
 begin
-    if count(select 1 from information_schema.tables where
-             table_name = remove_table) > 0 then
+    if count > 0 then
         execute format('drop table %I', remove_table);
     end if;
 end;
 $$;
 
 call remove_table('clients_temporary');
-create temporary table clients_temporary
+create table clients_temporary
 (
     client_name      text,
     street           text,
@@ -33,11 +25,12 @@ create temporary table clients_temporary
     vat_rate_percent text,
     phone            text,
     email            text,
-    nip              text
+    nip              text,
+    country          text
 );
 
 call remove_table('projects_temporary');
-create temporary table projects_temporary
+create table projects_temporary
 (
     project_name text,
     client_name  text,
@@ -47,7 +40,7 @@ create temporary table projects_temporary
 );
 
 call remove_table('employees_temporary');
-create temporary table employees_temporary
+create table employees_temporary
 (
     first_name      text,
     last_name       text,
@@ -61,7 +54,7 @@ create temporary table employees_temporary
 );
 
 call remove_table('month_work_temporary');
-create temporary table month_work_temporary
+create table month_work_temporary
 (
     pesel        text,
     date         text,
@@ -126,7 +119,9 @@ do
 $$
     begin
         if not exists (select 1
-                       from information_schema.tables and table_name = 'clients' and table_schema = 'public') then
+                       from information_schema.tables
+                       where table_name = 'clients'
+                         and table_schema = 'public') then
             create table clients
             (
                 id               serial primary key,
@@ -148,8 +143,9 @@ do
 $$
     begin
         if not exists (select 1
-                       from information_schema.tables and
-            table_name = 'transaction_logs' and table_schema = 'public') then
+                       from information_schema.tables
+                       where table_name = 'transaction_logs'
+                         and table_schema = 'public') then
             create table transaction_logs
             (
                 id          serial primary key,
@@ -166,8 +162,9 @@ do
 $$
     begin
         if not exists (select 1
-                       from information_schema.tables and
-            table_name = 'transaction_details' and table_schema = 'public') then
+                       from information_schema.tables
+                       where table_name = 'transaction_details'
+                         and table_schema = 'public') then
             create table transaction_details
             (
                 transaction_id serial primary key,
@@ -181,7 +178,9 @@ do
 $$
     begin
         if not exists (select 1
-                       from information_schema.tables and table_name = 'projects' and table_schema = 'public') then
+                       from information_schema.tables
+                       where table_name = 'projects'
+                         and table_schema = 'public') then
             create table projects
             (
                 id           serial primary key,
@@ -200,8 +199,9 @@ do
 $$
     begin
         if not exists (select 1
-                       from information_schema.tables and
-            table_name = 'departments' and table_schema = 'public') then
+                       from information_schema.tables
+                       where table_name = 'departments'
+                         and table_schema = 'public') then
             create table departments
             (
                 id   serial primary key,
@@ -212,18 +212,25 @@ $$
 $$;
 
 insert into departments (name)
-values ('HR', 'Development', 'Finance', 'Marketing', 'Sales', 'Management');
+values ('HR'),
+       ('Development'),
+       ('Finance'),
+       ('Marketing'),
+       ('Sales'),
+       ('Management');
 
 do
 $$
     begin
         if not exists (select 1
-                       from information_schema.tables and
-            table_name = 'employees' and table_schema = 'public') then
+                       from information_schema.tables
+                       where table_name = 'employees'
+                         and table_schema = 'public') then
             create table employees
             (
                 id              serial primary key,
                 first_name      text    not null,
+                department_id   integer not null,
                 last_name       text    not null,
                 position        text    not null,
                 phone_number    text    not null,
@@ -231,8 +238,7 @@ $$
                 pesel           text    not null,
                 salary_per_hour numeric not null,
                 employment_date date    not null,
-                foreign key (department) references departments (id),
-                foreign key (project_id) references projects (id)
+                foreign key (department_id) references departments (id)
             );
         end if;
     end
@@ -242,14 +248,15 @@ do
 $$
     begin
         if not exists (select 1
-                       from information_schema.tables and
-            table_name = 'month_work' and table_schema = 'public') then
+                       from information_schema.tables
+                       where table_name = 'month_work'
+                         and table_schema = 'public') then
             create table month_work
             (
                 id           serial primary key,
-                employee_id  numeric not null,
+                employee_id  integer not null,
                 date         date    not null,
-                project_id   numeric not null,
+                project_id   integer not null,
                 hours_worked numeric not null,
                 foreign key (project_id) references projects (id),
                 foreign key (employee_id) references employees (id)
@@ -954,35 +961,45 @@ begin
                    (SELECT XMLAGG(
                                    XMLELEMENT(
                                            NAME "project",
-                                           XMLATTRIBUTES(p.project_name AS "name"),
+                                           XMLATTRIBUTES(p.project_name AS
+                                           "name"),
                                            (SELECT XMLAGG(
-                                                           XMLELEMENT(NAME "work_entry",
-                                                                   XMLFOREST(
-                                                                          e.first_name as "first_name",
-                                                                          e.last_name as "last_name",
-                                                                            e.position as "position",
-                                                                            e.email as "email",
-                                                                          (select sum(w.hour_worked)) as "hours_worked_in_month",
-                                                                            (select sum(w.hour_worked * e.salary_per_hour)) as "salary_in_month_brutto",
-                                                                            (select sum(w.hour_worked * e.salary_per_hour * 0.77)) as "salary_in_month_netto"
-                                                                            )
-                                                                   )
+                                                           XMLELEMENT(NAME
+                                                                      "work_entry",
+                                                                      XMLFOREST(
+                                                                              e.first_name as
+                                                                              "first_name",
+                                                                              e.last_name as
+                                                                              "last_name",
+                                                                              e.position as
+                                                                              "position",
+                                                                              e.email as
+                                                                              "email",
+                                                                              (select sum(w.hour_worked)) as
+                                                                              "hours_worked_in_month",
+                                                                              (select sum(w.hour_worked * e.salary_per_hour)) as
+                                                                              "salary_in_month_brutto",
+                                                                              (select sum(w.hour_worked * e.salary_per_hour * 0.77)) as
+                                                                              "salary_in_month_netto"
+                                                                      )
                                                            )
-                                                   )
-                                            FROM month_work w
-                                            join employees e on e.id = w.employee_id
-                                            where w.project_id = p.id
-                                            and w.date >= DATE_TRUNC('month', textToDate(year_month))
-                                               AND w.date < DATE_TRUNC('month', textToDate(year_month) + INTERVAL '1 month'))
-                                           )
-                                   )
-                           )
-                    FROM (select distinct project_name
-                          FROM projects p
-                          where p.end_date >= textToDate(year_month)) p)
+                                                   ))
+                                           FROM month_work w
+                                           join employees e on
+                                           e.id = w.employee_id
+                                           where w.project_id = p.id
+                                               and w.date >=
+                                                   DATE_TRUNC('month', textToDate(year_month))
+                                               AND w.date < DATE_TRUNC('month',
+                                                                       textToDate(year_month) +
+                                                                       INTERVAL '1 month'))
+                           ))
+           )
+    FROM (select distinct project_name
+          FROM projects p
+          where p.end_date >= textToDate(year_month)) p)
            ) AS xml_result;
 
 end;
 $$
     language plpgsql;
-

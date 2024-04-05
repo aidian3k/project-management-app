@@ -1,11 +1,7 @@
 import logging
-
 import psycopg
 import sys
-
-from pandas import DataFrame
-
-import constants
+from helpers.constants import *
 import pandas
 
 
@@ -15,29 +11,39 @@ class DatabaseManagement:
         self.__temporary_table_name = temporary_table_name
         self.__validation_procedure_name = validation_procedure_name
 
-    def delete_all_temporary_clients_data(self):
+    def delete_all_temporary_data(self):
         try:
             cursor = self.__postgres_connection.cursor()
             cursor.execute(f'delete from {self.__temporary_table_name}')
-            cursor.commit()
+            self.__postgres_connection.commit()
 
             logging.debug('Deleted all temporary clients from table temporary_clients')
             cursor.close()
         except psycopg.Error as error:
             print("Error deleting data from the temporary table:", error)
-            sys.exit(constants.OutputConstants.EXIT_FAILURE)
+            sys.exit(OutputConstants.EXIT_FAILURE)
 
     def write_temporary_data_into_table(self, csv_data_file_path: str) -> None:
-        clients_dataframe: DataFrame = pandas.read_csv(csv_data_file_path)
+        data_frame: pandas.DataFrame = pandas.read_csv(csv_data_file_path)
 
         try:
-            clients_dataframe.to_sql(name=self.__temporary_table_name,
-                                     con=self.__postgres_connection,
-                                     if_exists='replace',
-                                     index=True)
-        except Exception:
-            logging.error(f'Error while inserting into the table in db')
-            sys.exit(constants.OutputConstants.EXIT_FAILURE)
+            cursor = self.__postgres_connection.cursor()
+            number_of_arguments = int(len(data_frame.columns))
+            argument_to_insert_query = ', '.join(['%s'] * number_of_arguments)
+            columns_names = data_frame.columns.tolist()
+            columns_to_insert_query = ', '.join(columns_names)
+
+            for index, row in data_frame.iterrows():
+                insert_query = f'insert into {self.__temporary_table_name}({columns_to_insert_query}) values({argument_to_insert_query})'
+                values_of_row = list(row)
+                cursor.execute(insert_query, values_of_row)
+
+            self.__postgres_connection.commit()
+            logging.debug(f'Successfully wrote data into the: [{self.__temporary_table_name}] table')
+            cursor.close()
+        except Exception as e:
+            logging.error(f'Error while inserting into the table in db', e)
+            sys.exit(OutputConstants.EXIT_FAILURE)
 
     def validate_temporary_data(self):
         try:
@@ -47,4 +53,4 @@ class DatabaseManagement:
             postgres_cursor.close()
         except Exception as error:
             logging.error(f'There was an error while executing the validation procedure: {error}')
-            sys.exit(constants.OutputConstants.EXIT_FAILURE)
+            sys.exit(OutputConstants.EXIT_FAILURE)

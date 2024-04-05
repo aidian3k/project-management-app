@@ -3,6 +3,8 @@ from helpers.database_management import *
 from helpers.db_credentials import DatabaseCredentials
 from helpers.validators import InputValidators
 
+import psycopg
+
 if __name__ == '__main__':
     InputValidators.validate_input_arguments(sys.argv)
 
@@ -21,5 +23,5 @@ if __name__ == '__main__':
     clients_db_management: DatabaseManagement = DatabaseManagement(postgres_connection,
                                                                    ClientConstants.temporary_table_name,
                                                                    ClientConstants.validation_procedure_name)
-    clients_db_management.delete_all_temporary_clients_data()
+    clients_db_management.delete_all_temporary_data()
     clients_db_management.write_temporary_data_into_table(clients_file_path)

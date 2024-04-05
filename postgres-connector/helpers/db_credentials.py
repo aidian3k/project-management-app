@@ -1,4 +1,4 @@
-from constants import DatabaseConstants
+from helpers.constants import *
 
 
 class DatabaseCredentials:
