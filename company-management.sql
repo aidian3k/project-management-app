@@ -1,3 +1,4 @@
+/* creating basic procedure for removing the table from the database */
 drop procedure if exists remove_table;
 create or replace procedure remove_table(remove_table text)
     language plpgsql
@@ -13,6 +14,9 @@ begin
     end if;
 end;
 $$;
+
+/* creating temporary tables for storing the data */
+/* right now, we need 4 files for handling - clients, projects, employees and month_work */
 
 call remove_table('clients_temporary');
 create table clients_temporary
@@ -62,6 +66,9 @@ create table month_work_temporary
     hours_worked text
 );
 
+/* creating tables for storing logs during the validation
+it is used for storing errors encountered during the validation process of temporary tables
+in this table ony the small description and username, timestamp is stored */
 DO
 $$
     BEGIN
@@ -81,6 +88,10 @@ $$
     END
 $$;
 
+/* This table is used for specific detailed_logs - after adding a record
+   into the logs table - the data that is wrong is written into this database
+   with id = [inserted_log]
+*/
 DO
 $$
     BEGIN
@@ -98,23 +109,52 @@ $$
     END
 $$;
 
-DO
+/* also I am creating similar tables for storing the transaction data,
+therefore this table contains almost the same data as logs but is storing
+the information about the inserts to particular tables - for instance insertes to real client table
+*/
+do
 $$
-    BEGIN
-        IF NOT EXISTS (SELECT 1
-                       FROM information_schema.tables
-                       WHERE table_schema = 'public'
-                         AND table_name = 'detailed_logs') THEN
-            CREATE TABLE public.detailed_logs
+    begin
+        if not exists (select 1
+                       from information_schema.tables
+                       where table_name = 'transaction_logs'
+                         and table_schema = 'public') then
+            create table transaction_logs
             (
-                logs_id              INT          NOT NULL,
-                detailed_description VARCHAR(100) NOT NULL,
-                FOREIGN KEY (logs_id) REFERENCES logs (id)
+                id          serial primary key,
+                description text      not null,
+                timestamp   timestamp not null default current_timestamp,
+                username    text      not null default current_user,
+                hostname    text      not null default inet_client_addr()
             );
-        END IF;
-    END
+        end if;
+    end;
 $$;
 
+/* this table - similar as detailed_logs is for storing detailed_information
+   about the record that was stored in the database - it has transaction_id
+   of inserted transaction and description which contains the inserted records ids
+ */
+do
+$$
+    begin
+        if not exists (select 1
+                       from information_schema.tables
+                       where table_name = 'transaction_details'
+                         and table_schema = 'public') then
+            create table transaction_details
+            (
+                transaction_id serial primary key,
+                description    text not null
+            );
+        end if;
+    end;
+$$;
+
+/* then creating tables in which real data will be stored
+firstly creating clients, projects, employees and month_work
+*/
 do
 $$
     begin
@@ -144,41 +184,6 @@ $$
     begin
         if not exists (select 1
                        from information_schema.tables
-                       where table_name = 'transaction_logs'
-                         and table_schema = 'public') then
-            create table transaction_logs
-            (
-                id          serial primary key,
-                description text      not null,
-                timestamp   timestamp not null default current_timestamp,
-                username    text      not null default current_user,
-                hostname    text      not null default inet_client_addr()
-            );
-        end if;
-    end;
-$$;
-
-do
-$$
-    begin
-        if not exists (select 1
-                       from information_schema.tables
-                       where table_name = 'transaction_details'
-                         and table_schema = 'public') then
-            create table transaction_details
-            (
-                transaction_id serial primary key,
-                description    text not null
-            );
-        end if;
-    end;
-$$;
-
-do
-$$
-    begin
-        if not exists (select 1
-                       from information_schema.tables
                        where table_name = 'projects'
                          and table_schema = 'public') then
             create table projects
@@ -195,6 +200,10 @@ $$
     end
 $$;
 
+/* departments table is stored in the database and is maintained by the company
+   the data in here is inserted by some admin of system and in employees
+   file there should not exist departments that does not exist in this file
+ */
 do
 $$
     begin
@@ -211,6 +220,7 @@ $$
     end
 $$;
 
+/* inserting some real data about the departments in the company */
 insert into departments (name)
 values ('HR'),
        ('Development'),
@@ -219,6 +229,7 @@ values ('HR'),
        ('Sales'),
        ('Management');
 
+/* creating the employees table which is connected to department table */
 do
 $$
     begin
@@ -244,6 +255,10 @@ $$
     end
 $$;
 
+/* month_work is the main table of the application - it stores the data about
+   hours_worked by every person in the company and the project they worked during
+   this time. It has connection to the employee table and project table.
+ */
 do
 $$
     begin
@@ -265,6 +280,9 @@ $$
     end
 $$;
 
+/* creating function which will transform the text to numeric data
+   while importing the data into real tables
+ */
 CREATE OR REPLACE FUNCTION textToNumeric(txt VARCHAR(20))
     RETURNS NUMERIC AS
 $$
@@ -287,6 +305,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+/* similar like other table - this function is used for transforming the date
+   from text in temporary tables to date object in postgresql for casting purposes
+ */
 CREATE OR REPLACE FUNCTION textToDate(txt text)
     RETURNS TIMESTAMP AS
 $$
@@ -310,6 +331,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+/* this function is used for checking the validity of the email and is used in validation */
 CREATE FUNCTION is_valid_email(email_text text)
     RETURNS BOOLEAN AS
 $$
@@ -318,6 +340,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+/* then we have validation of the clients temporary table we check following things:
+1. Checking if clients table has some records - if 0 throw an exception
+2. Checking by nip the client distinct - if there are companies with the same nip number - throw an exception
+3. Checking vat_rate_company - if the vat rate is < 0 or > 100 percent - throw an exception
+4. Checking for email validity - if there are some invalid emails - throw an exception
+------------
+If everything is correct - insert the data into the table and then if transaction is correct
+store the information about the data in transaction_logs_table
+*/
 CREATE OR REPLACE FUNCTION check_if_clients_data_are_okay()
     RETURNS numeric AS
 $$
@@ -444,6 +475,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+/* Then we have projects_validation which contains of following checking queries:
+1. Firstly checking if even there is some data in the file - if not - throw an exception
+2. Checking if there is a project which has starting_date > now(). If so throw an exception
+3. Checking if projects are matching clients - checking if in temporary or clients table there is
+client with the same name as in clients table
+4. Checking if there is some duplication of the projects in the temporary table - if so throw an exception
+--------------------------
+If this validation passes - then insert the data into the real projects_table
+ */
 create or replace function check_if_projects_data_are_okay()
     returns numeric as
 $$
@@ -573,6 +613,13 @@ begin
 end;
 $$;
 
+/* Then checking if the employees data are correct by following things:
+1. Checking if there are duplicated_pesels in the file which has to be unique - if so - throw an exception
+2. Checking if the employee is in the department which is stored in the database - if not - throw an exception
+3. Checking if there are 0 records in the employees table - if so - throw an exception
+--------------
+If those validations passes - the employees data is inserted into the real database table
+ */
 create function check_if_employees_data_are_okay()
     returns numeric as
 $$
@@ -682,6 +729,15 @@ begin
 end;
 $$;
 
+/* Lastly - we are checking the data from month_work:
+1. Checking if the existing_employees_that_not_in file - if so - throw an exception
+2. Checking if there are days from the future in month_work - if so - throw an exception
+3. Checking if all days are from the same month - if so - throw an exception
+4. Checking if projects are in the projects table already - if not - throw an exception
+5. Checking if the  hours_worked in single day exceed 24 hours - if so - throw an exception
+---------------------
+If the data is correct - inserting the data into the month_work_table
+ */
 create function check_if_month_work_data_are_okay()
     returns numeric as
 $$
@@ -888,6 +944,7 @@ end
 $$;
 
 /* creating the table for storing current raport schema function to generate reports standard in xml */
+/* this table is used for possible new types of the raport standard and inserting some possible new data to that table*/
 call remove_table('raport_schemas');
 create table raport_schemas
 (
@@ -901,6 +958,7 @@ values ('standard', '2024-04-01', 'standard_month_raport2'),
        ('standard', '2023-04-01', 'standard_month_raport1'),
        ('standard', '2022-04-01', 'standard_month_raport0');
 
+/* creating some functions for the raport generating from the past and right now */
 create or replace function standard_month_raport0(year_month nchar(6))
     returns xml as
 $$
@@ -922,6 +980,10 @@ begin
 end;
 $$ language plpgsql;
 
+/* This function is used for generating the report based on some wanted_type
+   and also wanted_from date. It checks the procedure wanted_type and wanted_from
+   date - fetches the procedure_name from the table and then executing the procedure
+ */
 create or replace procedure generate_report(wanted_type text, wanted_from_date date)
     language plpgsql
 as
@@ -952,6 +1014,11 @@ begin
 end ;
 $$;
 
+/* This is procedure for generating the standard_month_report based on year_month
+   This is used for firstly - fetching all the data from year_month_table and then
+   generating the report in xml for having the aggregation of the project from one month
+   and all the costs for particular project
+ */
 create or replace procedure standard_month_report(year_month nchar(6)) as
 $$
 begin
