@@ -305,6 +305,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+/* testing the function
+   select textToNumeric(12) = 12:numeric
+   select textToNumeric(39.9) = 39.9: numeric
+ */
+
 /* similar like other table - this function is used for transforming the date
    from text in temporary tables to date object in postgresql for casting purposes
  */
@@ -331,6 +336,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+/* testing this function
+   select textToDate('2024-01-01')=2024-01-01 01:00:00.0
+   select textToDate('20240101')=2024-01-01 00:00:00.000000
+ */
+
 /* this function is used for checking the validity of the email and is used in validation */
 CREATE FUNCTION is_valid_email(email_text text)
     RETURNS BOOLEAN AS
@@ -339,6 +349,11 @@ BEGIN
     RETURN email_text ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$';
 END;
 $$ LANGUAGE plpgsql;
+
+/* testing the function
+   select is_valid_email('adrian@')=False
+   select is_valid_email('adrian@wp.pl')=True
+ */
 
 /* then we have validation of the clients temporary table we check following things:
 1. Checking if clients table has some records - if 0 throw an exception
@@ -474,6 +489,10 @@ BEGIN
     return error_result;
 END;
 $$ LANGUAGE plpgsql;
+
+/* running the function
+   select check_if_clients_data_are_okay() = if okay 0 - if not 0
+ */
 
 /* Then we have projects_validation which contains of following checking queries:
 1. Firstly checking if even there is some data in the file - if not - throw an exception
@@ -1070,3 +1089,29 @@ begin
 end;
 $$
     language plpgsql;
+
+/* sample run of the function
+   select standard_month_report('202401')
+   output:
+
+   <monthly_work_report month="month_report_for_202401">
+    <project name="Project A">
+        <work_entry>
+            <first_name>John</first_name>
+            <last_name>Doe</last_name>
+            <position>Developer</position>
+            <email>john.doe@example.com</email>
+            <hours_worked_in_month>120</hours_worked_in_month>
+            <salary_in_month_brutto>6000.00</salary_in_month_brutto>
+            <salary_in_month_netto>4620.00</salary_in_month_netto>
+        </work_entry>
+        <!-- More work_entry elements for other employees working on Project A -->
+    </project>
+    <project name="Project B">
+    </project>
+    <project name="Project C">
+    </project>
+    <project name="Project D"">
+    </project>
+</monthly_work_report>
+ */
